@@ -27,7 +27,7 @@ class dataLoader(object):
             #print('This is a FIFO data loader. You cannot shuffle it.')
             return False
     def get_batch(self):
-        if self.pointer>self.pointer_upperbound:
+        if self.pointer>=self.pointer_upperbound:
             self.pointer=0
         elif self.pointer==0:
             self.shuffleSeq_()
