@@ -25,9 +25,12 @@ def read_data(path):
     """  
     #print('check1')
     with h5py.File(path, 'r') as hf:
-        data = np.array(hf.get('data'))
-        label = np.array(hf.get('label'))
-    return data, label
+        data = np.array(hf.get('data'),dtype=np.float16)
+        try:
+            label = np.array(hf.get('label'),dtype=np.float16)
+            return data, label
+        except:
+            return data
 
 """7-1-1-2"""
 def preprocess(path, scale=3):
@@ -47,8 +50,8 @@ def preprocess(path, scale=3):
     # Must be normalized
     label_ = label_ / 255.
 
-    input_ = scipy.ndimage.interpolation.zoom(label_, (1./scale), prefilter=False)#down-scale
-    input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=False)#up-scale
+    input_ = scipy.ndimage.interpolation.zoom(label_, (1./scale), prefilter=True)#down-scale
+    input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=True)#up-scale
  
     return input_, label_
 
@@ -65,21 +68,39 @@ def prepare_data(sess, folderpath):
         train_filenames = glob.glob(os.path.join(folderpath[0], "*.bmp"))
         test_filenames = glob.glob(os.path.join(folderpath[1], "*.bmp"))
         return [train_filenames,test_filenames]
+    else:
+        assert(len(folderpath)==1)
+        train_filenames = glob.glob(os.path.join(folderpath[0], "*.bmp"))
+        return [train_filenames]
 
 """7-1-1-3"""
+def save_each(X,y,path):
+    path_x=path+'.X'
+    path_y=path+'.y'
+    np.save(path_x,X)
+    np.save(path_y,y)
+    return True
+    
 def make_data(sess, data, label, folderpath, c_dim,mode='train'):
+    print(data.shape)
     """
     Make input data as h5 file format
     Depending on 'is_train' (flag value), savepath would be changed.
     """
     if mode=='train':
         savepath = os.path.join(folderpath,'train.c'+str(c_dim)+'.h5')
-    else:
+    elif mode=='test':
         savepath = os.path.join(folderpath, 'test.c'+str(c_dim)+'.h5')
+    elif mode=='new':
+        savepath = os.path.join(folderpath, 'new.c'+str(c_dim)+'.h5')
 
     with h5py.File(savepath, 'w') as hf:
         hf.create_dataset('data', data=data)
-        hf.create_dataset('label', data=label)
+        if label is not None:
+            hf.create_dataset('label', data=label)
+
+    return True
+        
     
 
 def imread(path, is_grayscale=True):
@@ -119,6 +140,7 @@ def generate_patch(h,w,input_,label_,padding,config):
     sub_label_sequence=list()
     nx = 0
     ny = 0 
+
     for x in range(0, h-config.image_size+1, config.stride):
         nx+=1
         ny=0
@@ -238,16 +260,59 @@ def input_setup(sess, config):
     make_data(sess, X_test, y_test, config.checkpoint_dir, config.c_dim,mode='test')
     return True
 
+def input_setup_test(sess, config):
+    """
+    Read image files and make their sub-images and saved them as a h5 file format.
+    """
+    #if h5 exists, skip
+    if not config.make_patch:
+        target_path=os.path.join(config.checkpoint_dir,'new.c'+str(config.c_dim)+'.h5')
+        if os.path.isfile(target_path):
+            return False
+            
+    # Load data path
+    data = prepare_data(sess, [config.new_image_path])#7-1-1-1
+    padding =  abs(config.image_size - config.label_size) / 2 # 6
+  
+    #if training
+    tst_sub_input_sequence = []
+    tst_sub_label_sequence = []
+    nxny_list=list()
+    for j in range(len(data[0])):
+        #preprocess each image
+        input_, label_ = preprocess(data[0][j], config.scale)#7-1-1-2
+        #get image size
+        if len(input_.shape) == 3:
+            h, w, _ = input_.shape
+        else:
+            h, w = input_.shape
+        output=generate_patch(h,w,input_,label_,padding,config)
+
+        tst_sub_input_sequence.append(output[2])
+        tst_sub_label_sequence.append(output[3])
+        nxny_list.append((output[0],output[1]))
+    #flatten list of lists 
+    tst_sub_input_sequence=reduce(lambda x,y: x+y,tst_sub_input_sequence)
+    #tst_sub_label_sequence=reduce(lambda x,y: x+y,tst_sub_label_sequence)
+    #list to numpy
+    X_test=np.asarray(tst_sub_input_sequence)
+    #y_test=np.asarray(tst_sub_label_sequence)
+    
+    make_data(sess, X_test,None, config.checkpoint_dir, config.c_dim,mode='new')
+    return nxny_list,data[0]
     
 def imsave(image, path):
-    return scipy.misc.imsave(path, image)
+    return scipy.misc.imsave(path, image,format='bmp')
 #"""7-1-2 merge patches into an image"""
-#def merge(images, size):#!!! do not use it. test using whole images
-#    h, w = images.shape[1], images.shape[2]
-#    img = np.zeros((h*size[0], w*size[1], 1))
-#    for idx, image in enumerate(images):
-#        print(image.shape)
-#        i = idx % size[1]
-#        j = idx // size[1]
-#        img[j*h:j*h+h, i*w:i*w+w, :] = image
-#    return img
+def merge(patches, nxny):
+    patches=np.asarray(patches)
+    print(patches.shape)
+    h, w = patches.shape[1], patches.shape[2]
+    img = np.zeros((h*nxny[0], w*nxny[1],1))
+    for idx, image in enumerate(patches):
+        #print(image.shape)
+        i = idx % nxny[1]
+        j = idx // nxny[1]
+        img[j*h:j*h+h, i*w:i*w+w,:] = image
+    
+    return np.squeeze(img)

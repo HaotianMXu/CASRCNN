@@ -1,8 +1,10 @@
 from utils import (
   read_data, 
   input_setup, 
+  input_setup_test,
   imsave,
-  preprocess
+  preprocess,
+  merge
 )
 import glob
 import numpy as np
@@ -12,6 +14,8 @@ import math
 import time
 import os
 import tensorflow as tf
+import dataLoader
+
 
 class SRCNN(object):
     """6-1 init SRCNN and setup hyperparameters"""
@@ -57,48 +61,66 @@ class SRCNN(object):
     def test(self):
         #load new images in a folder
         try:
-            self.load(self.checkpoint_dir)
+            self.load(self.config.checkpoint_dir)
             print(" [*] Load SUCCESS")
         except:
             print(" [!] Load failed...")
             return
-        new_data_dir=self.config.new_image_path
-        print('new_data_dir',new_data_dir)
-        new_data=tf.constant(glob.glob(os.path.join(new_data_dir, "*.bmp")))
-        new_data_pathlist=self.sess.run(new_data)
-        new_data_loader = tf.data.Dataset.from_tensor_slices(new_data)
-        new_data_loader = new_data_loader.map(self.input_parser,num_threads=4)#path to img,lbl
-        new_data_loader = new_data_loader.batch(batch_size=self.config.batch_size)
+
+        print('new_data_folder',self.config.new_image_path)
+        #new_data_loader = tf.data.Dataset.from_tensor_slices(new_data)
+        #new_data_loader = new_data_loader.map(self.input_parser,num_threads=4)#path to img,lbl
+        #new_data_loader = new_data_loader.batch(batch_size=self.config.test_batch_size)
+        #iterator = tf.data.Iterator.from_structure(new_data_loader.output_types,new_data_loader.output_shapes)
+        #next_batch=iterator.get_next()
+        #new_init_op = iterator.make_initializer(new_data_loader)
+        #result=list()
+        #self.sess.run(new_init_op)
+        nxny_list,namelist=input_setup_test(self.sess,self.config)
+        new_data_dir = os.path.join(self.config.checkpoint_dir,'new.c'+str(self.config.c_dim)+'.h5')
+        X_test,_=read_data(new_data_dir)
+        #print(X_test[0].shape)
+        #print(X_test[1].shape)
+        new_data_loader=tf.data.Dataset.from_tensor_slices(X_test)
+        new_data_loader = new_data_loader.batch(batch_size=self.config.test_batch_size)
         iterator = tf.data.Iterator.from_structure(new_data_loader.output_types,new_data_loader.output_shapes)
         next_batch=iterator.get_next()
         new_init_op = iterator.make_initializer(new_data_loader)
         
         result=list()
         self.sess.run(new_init_op)
-        total_mse=0.
-        img_count=0.
-        batch_count=0.
         start_time=time.time()
         while True:
             try:
-                X,y=self.sess.run(next_batch)
-                y_pred = self.pred.eval({self.images: X, self.labels: y})
+                X=self.sess.run(next_batch)
+                y_pred = self.pred.eval({self.images: X})
                 result.append(y_pred)
-                total_mse+=tf.reduce_mean(tf.squared_difference(y_pred, y))
-                batch_count+=1
+                #total_mse+=tf.reduce_mean(tf.squared_difference(y_pred, y))
+                #batch_count+=1
             except tf.errors.OutOfRangeError:#all images passes
                 break
-        averge_mse=total_mse/batch_count
-        PSNR=-10*math.log10(averge_mse)
-        print("time: [%4.2f], \ntesting loss: [%.8f], \nPSNR: [%.4f]" % (time.time()-start_time, averge_mse,PSNR))
+        #averge_mse=total_mse/batch_count
+        #PSNR=-10*math.log10(averge_mse)
+        print("time: [%4.2f]" % (time.time()-start_time))
         
         #save
             #flatten
-        result=reduce(lambda x,y: x+y,result)
-        assert(len(result)==len(new_data_pathlist))
-        for i in len(result):
-            img=self.sess.run(result[i])
-            imsave(img,new_data_pathlist[i].replace('.bmp','.SR.bmp'))
+        print(len(result))
+        output=list()
+        for i in result:
+            for j in range(i.shape[0]):
+                output.append(i[j])
+        print(len(output))
+        print(output[0].shape)
+        
+        #result=[self.sess.run(i) for i in result]
+        patch_inx=0
+        for i in range(len(nxny_list)):
+            nx,ny=nxny_list[i]
+            img=merge(output[patch_inx:(patch_inx+nx*ny)],(nx,ny))
+            print('img shape@',i,img.shape)
+            patch_inx+=nx*ny
+            imsave(img,namelist[i].replace('.bmp','.bmp.c'+str(self.config.c_dim)))
                     
     def train(self):
         #data preprocessing
@@ -111,32 +133,29 @@ class SRCNN(object):
         trn_data_dir = os.path.join(self.config.checkpoint_dir,'train.c'+str(self.config.c_dim)+'.h5')
         print('trn_data_dir',trn_data_dir)
         X_train,y_train=read_data(trn_data_dir)
-        trn_data_loader=tf.data.Dataset.from_tensor_slices((X_train,y_train))
-        trn_data_loader = trn_data_loader.shuffle(buffer_size=X_train.shape[0])#smaller buffer size?
-        trn_data_loader = trn_data_loader.batch(batch_size=self.config.batch_size)
-
+        trn_data_loader=dataLoader(dataSize=X_train.shape[0],
+                                   batchSize=self.config.batch_size,
+                                   shuffle=True,
+                                   seed=123)
         
         tst_data_dir = os.path.join(self.config.checkpoint_dir,'test.c'+str(self.config.c_dim)+'.h5')
         print('tst_data_dir',tst_data_dir)
-        X_test,y_test=read_data(trn_data_dir)#7-1-2 read image from h5py
-        tst_data_loader=tf.data.Dataset.from_tensor_slices((X_test,y_test))
-        tst_data_loader = tst_data_loader.batch(batch_size=self.config.test_batch_size)
+        X_test,y_test=read_data(tst_data_dir)#7-1-2 read image from h5py
+        tst_data_loader=dataLoader(dataSize=X_test.shape[0],
+                                   batchSize=self.config.test_batch_size,
+                                   shuffle=False)
         
         #data description
         print('X_train.shape',X_train.shape)
         print('y_train.shape',y_train.shape)
-        del X_train,y_train,X_test,y_test
-        gc.collect()
-        #iter
-        iterator = tf.data.Iterator.from_structure(tst_data_loader.output_types,tst_data_loader.output_shapes)
-        next_batch=iterator.get_next()
-   
-        trn_init_op = iterator.make_initializer(trn_data_loader)
-        tst_init_op=iterator.make_initializer(tst_data_loader)
+        print('X_test.shape',X_test.shape)
+        print('y_test.shape',y_test.shape)
+        #del X_train,y_train,X_test,y_test
+        #gc.collect()
+
         # Stochastic gradient descent with the standard backpropagation
         self.train_op = tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.loss)
   
-    
         tf.global_variables_initializer().run()###remove DEPRECATED function###tf.initialize_all_variables().run()
     
         #Try to load pretrained model from checkpoint_dir
@@ -146,56 +165,65 @@ class SRCNN(object):
             print(" [!] Load failed...")
         #if training
         print("Training...")
+        batch_count=int(math.ceil(X_train.shape[0]/self.config.batch_size))
+        tst_batch_count=int(math.ceil(X_test.shape[0]/self.config.test_batch_size))
         best_PSNR=0.
         best_ep=0.
+        patience=self.config.patience
+        trn_PSNR_record=list()
+        trn_loss_record=list()
+        tst_PSNR_record=list()
+        tst_loss_record=list()
         for ep in range(self.config.epoch):#for each epoch
             epoch_loss = 0.
             average_loss = 0.
-            batch_count=0.
             start_time = time.time()
-            self.sess.run(trn_init_op)#need to init for each epoch
-            while True:#for each batch
-        # Run by batch images
-                try:
-                    X,y = self.sess.run(next_batch)
-                    _, err = self.sess.run([self.train_op, self.loss], feed_dict={self.images: X, self.labels: y})#update weights and biases 
+            for batch in range(batch_count):
+                inx=trn_data_loader.get_batch()
+                X,y = X_train[inx].view(),y_train[inx].view()
+                _, err = self.sess.run([self.train_op, self.loss], feed_dict={self.images: X, self.labels: y})#update weights and biases 
                     #print('err',err)
-                    epoch_loss += err
-                    batch_count+=1
-                    #print('epoch_loss',epoch_loss)
-                except tf.errors.OutOfRangeError:#all images passes
-                    break
-            
+                epoch_loss += err            
             average_loss = epoch_loss / batch_count #per sample
+            trn_loss_record.append(average_loss)
             #print(self.sess.run(average_loss))
             PSNR=-10*math.log10(average_loss)
+            trn_PSNR_record.append(PSNR)
             print("Epoch: [%2d], \n\ttime: [%4.2f], \n\ttraining loss: [%.8f], \n\tPSNR: [%.4f]" % (ep, time.time()-start_time, average_loss,PSNR))
             
             #valid
             epoch_loss = 0.
             average_loss = 0.
-            batch_count=0.
             start_time = time.time()
-            self.sess.run(tst_init_op)
-            while True:
-                try:
-                    X,y=self.sess.run(next_batch)
-                    err = self.sess.run(self.loss, feed_dict={self.images: X, self.labels: y})#only compute err
-                    epoch_loss += err
-                    batch_count+=1
-                except tf.errors.OutOfRangeError:#all images passes
-                    break
-            average_loss = epoch_loss / batch_count #per sample
+            for batch in range(tst_batch_count):
+                inx=tst_data_loader.get_batch()
+                X,y = X_test[inx].view(),y_test[inx].view()
+                err = self.sess.run(self.loss, feed_dict={self.images: X, self.labels: y})#only compute err
+                epoch_loss += err
+            average_loss = epoch_loss / tst_batch_count #per sample
+            tst_loss_record.append(average_loss)
             PSNR=-10*math.log10(average_loss) 
-            print("\n\ttime: [%4.2f], \n\ttesting loss: [%.4f], \n\tPSNR: [%.4f]\n\n" % (time.time()-start_time, average_loss,PSNR))
+            tst_PSNR_record.append(PSNR)
+            print("\n\ttime: [%4.2f], \n\ttesting loss: [%.8f], \n\tPSNR: [%.4f]\n\n" % (time.time()-start_time, average_loss,PSNR))
             
             #save
-            if PSNR>best_PSNR:
+            if PSNR<=best_PSNR:
+                patience-=1
+                if patience==0:
+                    print('early stop!')
+                    break
+            else:# PSNR>best_PSNR:
+                #print('\tcurrent best PSNR: <%.4f>\n' % PSNR)
                 self.save(self.config.checkpoint_dir,ep)
                 best_ep=ep
                 best_PSNR=PSNR
+                patience=self.config.patience
         print('best ep',best_ep)
         print('best PSNR',best_PSNR)
+        #save
+        info=np.vstack((np.asarray(trn_loss_record),np.asarray(trn_PSNR_record),np.asarray(tst_loss_record),np.asarray(tst_PSNR_record)))
+        np.save(os.path.join(self.config.checkpoint_dir,'info'),info)
+        print('info saved!',info.shape)
 
     def model(self):
         conv1 = tf.nn.relu(tf.nn.conv2d(self.images, self.weights['w1'], strides=[1,1,1,1], padding='SAME') + self.biases['b1'])
@@ -206,7 +234,7 @@ class SRCNN(object):
 
     def save(self, checkpoint_dir, step):
         model_name = "CASRCNN_C"+str(self.config.c_dim)+".model"
-        model_dir = "%s_%s" % ("srcnn", self.config.label_size)
+        model_dir = "%s_%s_%s" % ("srcnn", self.config.label_size, self.config.c_dim)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
 
         if not os.path.exists(checkpoint_dir):
@@ -218,7 +246,7 @@ class SRCNN(object):
 
     def load(self, checkpoint_dir):
         print(" [*] Reading checkpoints...")
-        model_dir = "%s_%s" % ("srcnn", self.config.label_size)
+        model_dir = "%s_%s_%s" % ("srcnn", self.config.model_label_size, self.config.c_dim)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
         print('checkpoint_dir',checkpoint_dir)#print folder path out
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
