@@ -229,8 +229,8 @@ class SRCNN(object):
         conv1 = tf.nn.relu(tf.nn.conv2d(self.images, self.weights['w1'], strides=[1,1,1,1], padding='SAME') + self.biases['b1'])
         conv2 = tf.nn.relu(tf.nn.conv2d(conv1, self.weights['w2'], strides=[1,1,1,1], padding='SAME') + self.biases['b2'])
         conv3 = tf.nn.conv2d(conv2, self.weights['w3'], strides=[1,1,1,1], padding='SAME') + self.biases['b3']
-        out = tf.clip_by_value(conv3,0.0,1.0)
-        return out
+        #out = tf.clip_by_value(conv3,0.0,1.0)
+        return conv3#out
 
     def save(self, checkpoint_dir, step):
         model_name = "CASRCNN_C"+str(self.config.c_dim)+".model"
