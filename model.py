@@ -4,7 +4,8 @@ from utils import (
   input_setup_test,
   imsave,
   preprocess,
-  merge
+  merge,
+  getXtest
 )
 import glob
 import numpy as np
@@ -58,8 +59,57 @@ class SRCNN(object):
         img=np.asarray([img]*self.config.c_dim).astype(np.float32)
         img=np.transpose(img,(1,2,0))#channel at tail
         return img,lbl
+    
+    def test_whole_img(self):
+        print('whole image based testing')
+        try:
+            self.load(self.config.checkpoint_dir)
+            print(" [*] Load SUCCESS")
+        except:
+            print(" [!] Load failed...")
+            return
+        print('new_data_folder',self.config.new_image_path)
+        X_test,sameSize,namelist=getXtest(self.config.new_image_path)
+        if not sameSize:
+            self.config.test_batch_size=1
+        tst_data_loader=dataLoader(dataSize=X_test.shape[0],
+                                   batchSize=self.config.test_batch_size,
+                                   shuffle=False)
+        tst_batch_count=int(math.ceil(X_test.shape[0]/self.config.test_batch_size))
+        
+        result=list()
+        #self.sess.run(new_init_op)
+        start_time=time.time()
+        for batch in range(tst_batch_count):
+            inx=tst_data_loader.get_batch()
+            X=X_test[inx].view()#self.sess.run(next_batch)
+            y_pred = self.pred.eval({self.images: X})
+            result.append(y_pred)
+
+        print("time: [%4.2f]" % (time.time()-start_time))
+        #flatten list
+        print(len(result))
+        if self.config.test_batch_size!=1:
+            output=list()
+            for i in result:
+                for j in range(i.shape[0]):
+                    output.append(i[j])
+            print(len(output))
+            print(output[0].shape)
+        else:
+            output=result[:]
+        #flatten output
+        output=list(map(np.squeeze,output))
+        #save result
+        for i in output:
+            imsave(i,namelist[i].replace('.bmp','.bmp.c'+str(self.config.c_dim)))
+        return
+        
+        
+
     def test(self):
-        #load new images in a folder
+        print('patched based testing')
+                #load new images in a folder
         try:
             self.load(self.config.checkpoint_dir)
             print(" [*] Load SUCCESS")
@@ -68,37 +118,33 @@ class SRCNN(object):
             return
 
         print('new_data_folder',self.config.new_image_path)
-        #new_data_loader = tf.data.Dataset.from_tensor_slices(new_data)
-        #new_data_loader = new_data_loader.map(self.input_parser,num_threads=4)#path to img,lbl
+
+        nxny_list,namelist=input_setup_test(self.sess,self.config)
+        new_data_dir = os.path.join(self.config.checkpoint_dir,'new.c'+str(self.config.c_dim)+'.h5')
+        X_test,_=read_data(new_data_dir)
+        tst_data_loader=dataLoader(dataSize=X_test.shape[0],
+                                   batchSize=self.config.test_batch_size,
+                                   shuffle=False)
+        tst_batch_count=int(math.ceil(X_test.shape[0]/self.config.test_batch_size))
+        #print(X_test[0].shape)
+        #print(X_test[1].shape)
+        #new_data_loader=tf.data.Dataset.from_tensor_slices(X_test)
         #new_data_loader = new_data_loader.batch(batch_size=self.config.test_batch_size)
         #iterator = tf.data.Iterator.from_structure(new_data_loader.output_types,new_data_loader.output_shapes)
         #next_batch=iterator.get_next()
         #new_init_op = iterator.make_initializer(new_data_loader)
-        #result=list()
-        #self.sess.run(new_init_op)
-        nxny_list,namelist=input_setup_test(self.sess,self.config)
-        new_data_dir = os.path.join(self.config.checkpoint_dir,'new.c'+str(self.config.c_dim)+'.h5')
-        X_test,_=read_data(new_data_dir)
-        #print(X_test[0].shape)
-        #print(X_test[1].shape)
-        new_data_loader=tf.data.Dataset.from_tensor_slices(X_test)
-        new_data_loader = new_data_loader.batch(batch_size=self.config.test_batch_size)
-        iterator = tf.data.Iterator.from_structure(new_data_loader.output_types,new_data_loader.output_shapes)
-        next_batch=iterator.get_next()
-        new_init_op = iterator.make_initializer(new_data_loader)
         
         result=list()
-        self.sess.run(new_init_op)
+        #self.sess.run(new_init_op)
         start_time=time.time()
-        while True:
-            try:
-                X=self.sess.run(next_batch)
-                y_pred = self.pred.eval({self.images: X})
-                result.append(y_pred)
+        for batch in range(tst_batch_count):
+            inx=tst_data_loader.get_batch()
+            X=X_test[inx].view()#self.sess.run(next_batch)
+            y_pred = self.pred.eval({self.images: X})
+            result.append(y_pred)
                 #total_mse+=tf.reduce_mean(tf.squared_difference(y_pred, y))
                 #batch_count+=1
-            except tf.errors.OutOfRangeError:#all images passes
-                break
+
         #averge_mse=total_mse/batch_count
         #PSNR=-10*math.log10(averge_mse)
         print("time: [%4.2f]" % (time.time()-start_time))

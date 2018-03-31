@@ -8,7 +8,7 @@ import h5py
 import scipy.misc
 import scipy.ndimage
 import numpy as np
-from functools import reduce
+from functools import reduce,repeat
 
 import tensorflow as tf
 
@@ -25,9 +25,9 @@ def read_data(path):
     """  
     #print('check1')
     with h5py.File(path, 'r') as hf:
-        data = np.array(hf.get('data'),dtype=np.float16)
+        data = np.array(hf.get('data'),dtype=np.float32)
         try:
-            label = np.array(hf.get('label'),dtype=np.float16)
+            label = np.array(hf.get('label'),dtype=np.float32)
             return data, label
         except:
             return data
@@ -46,9 +46,6 @@ def preprocess(path, scale=3):
     """
     image = imread(path, is_grayscale=True)#!!! always True?
     label_ = modcrop(image, scale)#7-1-1-2-1 crop image for sclaing
-
-    # Must be normalized
-    label_ = label_ / 255.
 
     input_ = scipy.ndimage.interpolation.zoom(label_, (1./scale), prefilter=True)#down-scale
     input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=True)#up-scale
@@ -98,20 +95,19 @@ def make_data(sess, data, label, folderpath, c_dim,mode='train'):
         hf.create_dataset('data', data=data)
         if label is not None:
             hf.create_dataset('label', data=label)
-
     return True
         
     
 
-def imread(path, is_grayscale=True):
+def imread(path, is_grayscale=True): 
     """
     Read image using its path.
     Default value is gray-scale, and image is read by YCbCr format as the paper said.
     """
     if is_grayscale:
-        return scipy.misc.imread(path, flatten=True, mode='YCbCr').astype(np.float)
+        return scipy.misc.imread(path, flatten=True, mode='YCbCr').astype(np.float32)/255.0
     else:
-        return scipy.misc.imread(path, mode='YCbCr').astype(np.float)
+        return scipy.misc.imread(path, mode='YCbCr').astype(np.float32)/255.0
 
 """7-1-1-2-1"""
 def modcrop(image, scale=3):
@@ -300,7 +296,21 @@ def input_setup_test(sess, config):
     
     make_data(sess, X_test,None, config.checkpoint_dir, config.c_dim,mode='new')
     return nxny_list,data[0]
-    
+def getXtest_each(imgName,c_dim):
+    img=imread(imgName)
+    output=np.zeros((img.shape,c_dim),dtype=np.float32)
+    for i in range(c_dim):
+        output[:,:,i]=img
+    return output
+def getXtest(folderPath,c_dim):#for whole image based testing
+    nameList=glob.glob(os.path.join(folderPath),'*.bmp') 
+    imgs=list(map(getXtest_each,nameList,repeat(c_dim)))
+    sameSize=True
+    imgSize=imgs[0].shape
+    for i in imgs:
+        if i.shape!=imgSize:
+            sameSize=False
+    return imgs,sameSize,nameList
 def imsave(image, path):
     return scipy.misc.imsave(path, image,format='bmp')
 #"""7-1-2 merge patches into an image"""
