@@ -8,7 +8,8 @@ import h5py
 import scipy.misc
 import scipy.ndimage
 import numpy as np
-from functools import reduce,repeat
+from functools import reduce
+from itertools import repeat
 
 import tensorflow as tf
 
@@ -298,12 +299,12 @@ def input_setup_test(sess, config):
     return nxny_list,data[0]
 def getXtest_each(imgName,c_dim):
     img=imread(imgName)
-    output=np.zeros((img.shape,c_dim),dtype=np.float32)
+    output=np.zeros((img.shape[0],img.shape[1],c_dim),dtype=np.float32)
     for i in range(c_dim):
         output[:,:,i]=img
     return output
 def getXtest(folderPath,c_dim):#for whole image based testing
-    nameList=glob.glob(os.path.join(folderPath),'*.bmp') 
+    nameList=glob.glob(os.path.join(folderPath,'*.bmp')) 
     imgs=list(map(getXtest_each,nameList,repeat(c_dim)))
     sameSize=True
     imgSize=imgs[0].shape

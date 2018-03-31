@@ -15,7 +15,7 @@ import math
 import time
 import os
 import tensorflow as tf
-import dataLoader
+from dataLoader import dataLoader
 
 
 class SRCNN(object):
@@ -69,21 +69,24 @@ class SRCNN(object):
             print(" [!] Load failed...")
             return
         print('new_data_folder',self.config.new_image_path)
-        X_test,sameSize,namelist=getXtest(self.config.new_image_path)
+        X_test,sameSize,namelist=getXtest(self.config.new_image_path,self.config.c_dim)
         if not sameSize:
             self.config.test_batch_size=1
-        tst_data_loader=dataLoader(dataSize=X_test.shape[0],
+        tst_data_loader=dataLoader(dataSize=len(X_test),
                                    batchSize=self.config.test_batch_size,
                                    shuffle=False)
-        tst_batch_count=int(math.ceil(X_test.shape[0]/self.config.test_batch_size))
+        tst_batch_count=int(math.ceil(len(X_test)/self.config.test_batch_size))
         
         result=list()
         #self.sess.run(new_init_op)
         start_time=time.time()
         for batch in range(tst_batch_count):
             inx=tst_data_loader.get_batch()
-            X=X_test[inx].view()#self.sess.run(next_batch)
-            y_pred = self.pred.eval({self.images: X})
+            X=list()
+            for i in np.nditer(inx):
+                X.append(X_test[i])
+            #X=X_test[inx]#self.sess.run(next_batch)
+            y_pred = self.pred.eval({self.images: np.asarray(X)})
             result.append(y_pred)
 
         print("time: [%4.2f]" % (time.time()-start_time))
@@ -101,8 +104,8 @@ class SRCNN(object):
         #flatten output
         output=list(map(np.squeeze,output))
         #save result
-        for i in output:
-            imsave(i,namelist[i].replace('.bmp','.bmp.c'+str(self.config.c_dim)))
+        for i in range(len(output)):
+            imsave(output[i],namelist[i].replace('.bmp','.bmp.c'+str(self.config.c_dim)))
         return
         
         
@@ -299,7 +302,6 @@ class SRCNN(object):
         if ckpt and ckpt.model_checkpoint_path:
             print('model_checkpoint_path',ckpt.model_checkpoint_path)#model path
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
-            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
-            return True
+            return self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
         else:
             return False

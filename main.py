@@ -4,22 +4,23 @@ import os
 
 """1.configuration"""
 flags = tf.app.flags
-flags.DEFINE_integer("epoch", 3000, "Number of epoch [100]")
+flags.DEFINE_integer("epoch", 10, "Number of epoch [100]")
 flags.DEFINE_integer("batch_size", 128, "The size of batch images [128]")
-flags.DEFINE_integer("test_batch_size", 1024, "The size of batch images for testing") 
-flags.DEFINE_integer("image_size", 32, "The size of image to use [33]")
-flags.DEFINE_integer("label_size", 32, "The size of label to produce [33]")
-flags.DEFINE_integer("model_label_size", 33, "for model loading [33]")
+flags.DEFINE_integer("test_batch_size", 2, "The size of batch images for testing") 
+flags.DEFINE_integer("image_size", 512, "The size of image to use [33]")
+flags.DEFINE_integer("label_size", 512, "The size of label to produce [33]")
+flags.DEFINE_integer("model_label_size", 64, "for model loading [33]")
 flags.DEFINE_integer("patience", 15, "The steps for early stop [10]")
 flags.DEFINE_float("learning_rate", 3e-4, "The learning rate of gradient descent algorithm [1e-4]")
 #flags.DEFINE_float("momentum",0.9,"The momentum of SGD [0.9]")###add momentum for better training performance
-flags.DEFINE_integer("c_dim", 9, "Dimension of image color. [9]")
+flags.DEFINE_integer("c_dim", 1, "Dimension of image color. [9]")
 flags.DEFINE_integer("scale", 3, "The size of scale factor for preprocessing input image [3]")
-flags.DEFINE_integer("stride", 16, "The size of stride to apply input image [14]")
+flags.DEFINE_integer("stride", 32, "The size of stride to apply input image [14]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint/CT", "Name of checkpoint directory [checkpoint]")
 flags.DEFINE_string("trn_folderpath", "Train/CT", "Name of sample directory [sample]")
 flags.DEFINE_string("tst_folderpath", "Test/CT", "Name of sample directory [sample]")
-flags.DEFINE_boolean("is_train", True, "True for training, False for testing [True]")
+flags.DEFINE_boolean("is_train", False, "True for training, False for testing [True]")
+flags.DEFINE_boolean("patch_test", False, "True for training, False for testing [True]")
 flags.DEFINE_string("new_image_path","Test/CT","Path of your image to test")
 flags.DEFINE_boolean("make_patch",True,"generate patches even if h5 already exists [True]")
 
@@ -41,9 +42,10 @@ def main(_):
         """7.start to train/test"""
         if(FLAGS.is_train):
             srcnn.train()
-        else:
+        elif FLAGS.patch_test:
             srcnn.test()
-    
+        else:
+            srcnn.test_whole_img()
 if __name__ == '__main__':
     """2.call main function"""
     tf.app.run()
