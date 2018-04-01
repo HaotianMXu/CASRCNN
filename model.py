@@ -29,30 +29,68 @@ class SRCNN(object):
         self.build_model()
         
     """6-2 define model"""
+    @staticmethod
+    def conv_layer(input,filter_shape,seed=111,name='1'):#filter_shape: [h,w,c_in,c_out]
+        with tf.name_scope('conv'+name):
+            w=tf.get_variable('W'+name,filter_shape,initializer=tf.contrib.layers.xavier_initializer(seed=seed))
+            b=tf.Variable(tf.constant(0.1,shape=[filter_shape[3]]), name='b'+name)
+            conv=tf.nn.conv2d(input, w, strides=[1,1,1,1], padding='SAME')
+            act=tf.nn.relu(conv+b)
+            tf.summary.histogram('weights',w)
+            tf.summary.histogram('biases',b)
+            tf.summary.histogram('convs',conv)
+            return act
+    @staticmethod
+    def conv_layer_noact(input,filter_shape,seed=111,name='1'):#filter_shape: [h,w,c_in,c_out]
+        with tf.name_scope('conv'+name):
+            w=tf.get_variable('W'+name,filter_shape,initializer=tf.contrib.layers.xavier_initializer(seed=seed))
+            b=tf.Variable(tf.constant(0.1,shape=[filter_shape[3]]), name='b'+name)
+            conv=tf.nn.conv2d(input, w, strides=[1,1,1,1], padding='SAME')
+            tf.summary.histogram('weights',w)
+            tf.summary.histogram('biases',b)
+            tf.summary.histogram('convs',conv)
+            tf.summary.image('output',conv)
+            return conv+b
     def build_model(self):
         #input
-        self.images = tf.placeholder(tf.float32, [None, self.config.image_size, self.config.image_size, self.config.c_dim], name='images')
+        self.images = tf.placeholder(tf.float32, [None, self.config.image_size, self.config.image_size, self.config.c_dim], name='input')
+        
+        tf.summary.image('input',self.images[:,:,:,(self.config.c_dim-1)//2:(self.config.c_dim-1)//2+1])
         #output
         self.labels = tf.placeholder(tf.float32, [None, self.config.label_size, self.config.label_size, 1], name='labels')
+        tf.summary.image('target',self.labels)
         #weights
-        self.weights = {
-          'w1': tf.Variable(tf.truncated_normal([9, 9, self.config.c_dim, 64], stddev=1e-3, seed=111),name='w1'),
-          'w2': tf.Variable(tf.truncated_normal([5, 5, 64, 32], stddev=1e-3, seed=222),name='w2'),
-          'w3': tf.Variable(tf.truncated_normal([5, 5, 32, 1], stddev=1e-3, seed=333),name='w3'),
-          }
-        #bias
-        self.biases = {
-          'b1': tf.Variable(tf.constant(0.1,shape=[64]), name='b1'),
-          'b2': tf.Variable(tf.constant(0.1,shape=[32]), name='b2'),
-          'b3': tf.Variable(tf.constant(0.1,shape=[1]), name='b3'),
-          }
+#        self.weights = {
+#          'w1': tf.get_variable('W1',[9, 9, self.config.c_dim, 64], initializer=tf.contrib.layers.xavier_initializer(seed=111)),
+#          'w2': tf.get_variable('W2',[5,5, 64, 32], initializer=tf.contrib.layers.xavier_initializer(seed=222)),
+#          'w3': tf.get_variable('W3',[9, 9, 32, 1], initializer=tf.contrib.layers.xavier_initializer(seed=333))
+#          }
+#        #bias
+#        self.biases = {
+#          'b1': tf.Variable(tf.constant(0.1,shape=[64]), name='b1'),
+#          'b2': tf.Variable(tf.constant(0.1,shape=[32]), name='b2'),
+#          'b3': tf.Variable(tf.constant(0.1,shape=[1]), name='b3'),
+#          }
+        #layers
+#        with tf.name_scope('conv1'):
+#            self.conv1 = tf.nn.relu(tf.nn.conv2d(self.images, self.weights['w1'], strides=[1,1,1,1], padding='SAME') + self.biases['b1'])
+#        with tf.name_scope('conv2'):
+#            self.conv2 = tf.nn.relu(tf.nn.conv2d(self.conv1, self.weights['w2'], strides=[1,1,1,1], padding='SAME') + self.biases['b2'])
+#        with tf.name_scope('conv3'):
+#            self.pred  = tf.nn.conv2d(self.conv2, self.weights['w3'], strides=[1,1,1,1], padding='SAME') + self.biases['b3']
+        self.conv1=self.conv_layer(self.images,[9,9,self.config.c_dim,64],seed=111,name='1')
+        self.conv2=self.conv_layer(self.conv1,[5,5,64,32],seed=222,name='2')
         #prediction
-        self.pred = self.model()
+        self.pred = self.conv_layer_noact(self.conv2,[5,5,32,1],seed=333,name='3')
         # Loss function (MSE) #avg per sample
-        self.loss = tf.reduce_mean(tf.square(self.labels - self.pred))
+        with tf.name_scope('loss'):
+            self.loss = tf.reduce_mean(tf.square(self.labels - self.pred))
+        # Stochastic gradient descent with the standard backpropagation
+        with tf.name_scope('optimization'):
+            self.train_op = tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.loss)
         #to save best model
         self.saver = tf.train.Saver()
-        
+
     """7-1 train/test"""
     def input_parser(self,img_path):
         img,lbl=preprocess(img_path)
@@ -185,7 +223,7 @@ class SRCNN(object):
         trn_data_loader=dataLoader(dataSize=X_train.shape[0],
                                    batchSize=self.config.batch_size,
                                    shuffle=True,
-                                   seed=123)
+                                   seed=345)
         
         tst_data_dir = os.path.join(self.config.checkpoint_dir,'test.c'+str(self.config.c_dim)+'.h5')
         print('tst_data_dir',tst_data_dir)
@@ -201,9 +239,6 @@ class SRCNN(object):
         print('y_test.shape',y_test.shape)
         #del X_train,y_train,X_test,y_test
         #gc.collect()
-
-        # Stochastic gradient descent with the standard backpropagation
-        self.train_op = tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.loss)
   
         tf.global_variables_initializer().run()###remove DEPRECATED function###tf.initialize_all_variables().run()
     
@@ -213,19 +248,56 @@ class SRCNN(object):
         else:
             print(" [!] Load failed...")
         #if training
+        # summary
+            #loss and PSNR
+        avg_trn_loss=tf.placeholder(tf.float32,shape=[],name='average_training_loss')
+        tf.summary.scalar('average_training_loss',avg_trn_loss)
+        
+        avg_trn_psnr=tf.placeholder(tf.float32,shape=[],name='average_training_PSNR')
+        tf.summary.scalar('average_training_PSNR',avg_trn_psnr)
+        
+        avg_tst_loss=tf.placeholder(tf.float32,shape=[],name='average_testing_loss')
+        tf.summary.scalar('average_testing_loss',avg_tst_loss)
+        
+        avg_tst_psnr=tf.placeholder(tf.float32,shape=[],name='average_testing_PSNR')
+        tf.summary.scalar('average_testing_PSNR',avg_tst_psnr)
+        
+            #weight and bias
+#        w1_ph=tf.placeholder(tf.float32,shape=[9,9,self.config.c_dim,64],name='W1_ph')
+#        b1_ph=tf.placeholder(tf.float32,shape=[64],name='b1_ph')
+#        tf.summary.histogram('W1',w1_ph)
+#        tf.summary.histogram('b1',b1_ph)
+#        
+#        w2_ph=tf.placeholder(tf.float32,shape=[5,5,64,32],name='W2_ph')
+#        b2_ph=tf.placeholder(tf.float32,shape=[32],name='b2_ph')
+#        tf.summary.histogram('W2',w2_ph)
+#        tf.summary.histogram('b2',b2_ph)
+#        
+#        w3_ph=tf.placeholder(tf.float32,shape=[5,5,32,1],name='W3_ph')
+#        b3_ph=tf.placeholder(tf.float32,shape=[1],name='b3_ph')
+#        tf.summary.histogram('W3',w3_ph)
+#        tf.summary.histogram('b3',b3_ph)
+        
+            #visualization
+#        input_ph=tf.placeholder(tf.float32,shape=[self.config.batch_size,self.config.image_size, self.config.image_size,1],name='input_ph')#the center channel
+#        tf.summary.image('sample_input',input_ph,3)
+#        
+#        output_ph=tf.placeholder(tf.float32,shape=[self.config.batch_size,self.config.label_size, self.config.label_size,1],name='output_ph')
+#        tf.summary.image('sample_output',output_ph,3)
+        
+        merged_summary=tf.summary.merge_all()
+        writer=tf.summary.FileWriter(self.config.TB_dir)
+        writer.add_graph(self.sess.graph)
+        
         print("Training...")
         batch_count=int(math.ceil(X_train.shape[0]/self.config.batch_size))
         tst_batch_count=int(math.ceil(X_test.shape[0]/self.config.test_batch_size))
         best_PSNR=0.
         best_ep=0.
         patience=self.config.patience
-        trn_PSNR_record=list()
-        trn_loss_record=list()
-        tst_PSNR_record=list()
-        tst_loss_record=list()
+
         for ep in range(self.config.epoch):#for each epoch
             epoch_loss = 0.
-            average_loss = 0.
             start_time = time.time()
             for batch in range(batch_count):
                 inx=trn_data_loader.get_batch()
@@ -233,30 +305,43 @@ class SRCNN(object):
                 _, err = self.sess.run([self.train_op, self.loss], feed_dict={self.images: X, self.labels: y})#update weights and biases 
                     #print('err',err)
                 epoch_loss += err            
-            average_loss = epoch_loss / batch_count #per sample
-            trn_loss_record.append(average_loss)
+            trn_average_loss = epoch_loss / batch_count #per sample
             #print(self.sess.run(average_loss))
-            PSNR=-10*math.log10(average_loss)
-            trn_PSNR_record.append(PSNR)
-            print("Epoch: [%2d], \n\ttime: [%4.2f], \n\ttraining loss: [%.8f], \n\tPSNR: [%.4f]" % (ep, time.time()-start_time, average_loss,PSNR))
+            trn_PSNR=-10*math.log10(trn_average_loss)
+            print("Epoch: [%2d], \n\ttime: [%4.2f], \n\ttraining loss: [%.8f], \n\tPSNR: [%.4f]" % (ep, time.time()-start_time, trn_average_loss,trn_PSNR))
             
             #valid
             epoch_loss = 0.
-            average_loss = 0.
             start_time = time.time()
             for batch in range(tst_batch_count):
                 inx=tst_data_loader.get_batch()
                 X,y = X_test[inx].view(),y_test[inx].view()
                 err = self.sess.run(self.loss, feed_dict={self.images: X, self.labels: y})#only compute err
                 epoch_loss += err
-            average_loss = epoch_loss / tst_batch_count #per sample
-            tst_loss_record.append(average_loss)
-            PSNR=-10*math.log10(average_loss) 
-            tst_PSNR_record.append(PSNR)
-            print("\n\ttime: [%4.2f], \n\ttesting loss: [%.8f], \n\tPSNR: [%.4f]\n\n" % (time.time()-start_time, average_loss,PSNR))
+            tst_average_loss = epoch_loss / tst_batch_count #per sample
+            tst_PSNR=-10*math.log10(tst_average_loss) 
+            print("\n\ttime: [%4.2f], \n\ttesting loss: [%.8f], \n\tPSNR: [%.4f]\n\n" % (time.time()-start_time, tst_average_loss,tst_PSNR))
             
+            #summary
+            if ep%1==0:
+                summ=self.sess.run(merged_summary,feed_dict={avg_trn_loss:trn_average_loss,
+                                                             avg_trn_psnr:trn_PSNR,
+                                                             avg_tst_loss:tst_average_loss,
+                                                             avg_tst_psnr:tst_PSNR,
+                                                             self.images:X,
+                                                             self.labels:y
+                                                             })
+#                                                             w1_ph:self.weights['w1'],
+#                                                             b1_ph:self.biases['b1'],
+#                                                             w2_ph:self.weights['w2'],
+#                                                             b2_ph:self.biases['b2'],
+#                                                             w3_ph:self.weights['w3'],
+#                                                             b3_ph:self.biases['b3'],
+#                                                             input_ph:tf.reshape(self.images[:,:,:,(self.config.c_dim-1)//2],[self.config.batch_size,self.config.image_size,self.config.image_size,1]),
+#                                                             output_ph:self.pred})
+                writer.add_summary(summ,ep)
             #save
-            if PSNR<=best_PSNR:
+            if tst_PSNR<=best_PSNR:
                 patience-=1
                 if patience==0:
                     print('early stop!')
@@ -265,21 +350,10 @@ class SRCNN(object):
                 #print('\tcurrent best PSNR: <%.4f>\n' % PSNR)
                 self.save(self.config.checkpoint_dir,ep)
                 best_ep=ep
-                best_PSNR=PSNR
+                best_PSNR=tst_PSNR
                 patience=self.config.patience
         print('best ep',best_ep)
         print('best PSNR',best_PSNR)
-        #save
-        info=np.vstack((np.asarray(trn_loss_record),np.asarray(trn_PSNR_record),np.asarray(tst_loss_record),np.asarray(tst_PSNR_record)))
-        np.save(os.path.join(self.config.checkpoint_dir,'info'),info)
-        print('info saved!',info.shape)
-
-    def model(self):
-        conv1 = tf.nn.relu(tf.nn.conv2d(self.images, self.weights['w1'], strides=[1,1,1,1], padding='SAME') + self.biases['b1'])
-        conv2 = tf.nn.relu(tf.nn.conv2d(conv1, self.weights['w2'], strides=[1,1,1,1], padding='SAME') + self.biases['b2'])
-        conv3 = tf.nn.conv2d(conv2, self.weights['w3'], strides=[1,1,1,1], padding='SAME') + self.biases['b3']
-        #out = tf.clip_by_value(conv3,0.0,1.0)
-        return conv3#out
 
     def save(self, checkpoint_dir, step):
         model_name = "CASRCNN_C"+str(self.config.c_dim)+".model"

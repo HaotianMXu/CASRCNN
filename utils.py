@@ -64,7 +64,7 @@ def prepare_data(sess, folderpath):
     if FLAGS.is_train:#load traning and testing images
         assert(len(folderpath)==2)
         train_filenames = glob.glob(os.path.join(folderpath[0], "*.bmp"))
-        test_filenames = glob.glob(os.path.join(folderpath[1], "*.bmp"))
+        test_filenames = sorted(glob.glob(os.path.join(folderpath[1], "*.bmp")))
         return [train_filenames,test_filenames]
     else:
         assert(len(folderpath)==1)
