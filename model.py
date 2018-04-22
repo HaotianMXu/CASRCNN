@@ -140,10 +140,10 @@ class SRCNN(object):
         else:
             output=result[:]
         #flatten output
-        output=list(map(np.squeeze,output))
+        output=map(np.squeeze,output)
         #save result
         for i in range(len(output)):
-            imsave(output[i],namelist[i].replace('.bmp','.bmp.c'+str(self.config.c_dim)))
+            imsave(np.clip(output[i],0,1),namelist[i].replace('.bmp','.bmp.c'+str(self.config.c_dim)))
         return
         
         
