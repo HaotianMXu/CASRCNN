@@ -1,4 +1,4 @@
-# SRCNN-Tensorflow
+# Context-aware SRCNN
 Tensorflow implementation of Convolutional Neural Networks for super-resolution. 
 
 ## Prerequisites
