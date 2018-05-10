@@ -29,7 +29,7 @@ class dataLoader(object):
     def get_batch(self):
         if self.pointer>=self.pointer_upperbound:
             self.pointer=0
-        elif self.pointer==0:
+        if self.pointer==0:
             self.shuffleSeq_()
         inx=self.seq[self.pointer*self.batchSize:(self.pointer+1)*self.batchSize].view()
         self.pointer+=1
